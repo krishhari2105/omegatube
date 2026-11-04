@@ -111,6 +111,8 @@ namespace OmegaTube.Ui
         private bool closing;
         private bool ended;
         private Timer tick, captionTick;
+        private readonly PlaybackRecovery recovery = new PlaybackRecovery();
+        private readonly System.Diagnostics.Stopwatch recoveryClock = System.Diagnostics.Stopwatch.StartNew();
         private DateTime chromeUntil;
         private DateTime toastUntil;
         private long pendingSeekMs = -1;   // accumulated target while the user holds Left/Right
@@ -388,6 +390,7 @@ namespace OmegaTube.Ui
 
         private async Task Start()
         {
+            recovery.Reset();
             IntPtr window = App.EcoreWindow;
             int w = (int)Window.Instance.WindowSize.Width, h = (int)Window.Instance.WindowSize.Height;
             if (App.Config.SponsorBlockEnabled && segments.Count == 0)
@@ -917,11 +920,13 @@ namespace OmegaTube.Ui
             if (player != IntPtr.Zero)
             {
                 NativeCore.PlayerGetStats(player, out stats);
-                if (stats.Reconnecting != 0)
+                bool wasRecovering = recovery.Visible;
+                bool playbackExpected = stats.State == 3 && stats.Eos == 0 && pendingSeekMs < 0 && now >= noSkipUntil;
+                if (recovery.Update(stats.Reconnecting != 0, playbackExpected, stats.PositionMs, recoveryClock.ElapsedMilliseconds))
                 {
                     ShowLoading(T("Reconnecting…"), opaque: false);   // over the last frame
                 }
-                else if (stats.State == 3 || stats.State == 4)
+                else if (wasRecovering || stats.State == 3 || stats.State == 4)
                 {
                     HideLoading();
                 }
